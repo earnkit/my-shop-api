@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: my_shop_db
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: earn
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: my_shop_db
+    volumes:
+      - my_shop_data:/var/lib/postgresql/data
+
+volumes:
+  my_shop_data:
