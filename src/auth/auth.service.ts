@@ -13,8 +13,10 @@ import {
 } from 'crypto';
 import { promisify } from 'util';
 import { PrismaService } from '../prisma/prisma.service';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 
 const scryptAsync = promisify(scrypt);
 
@@ -40,13 +42,23 @@ export class AuthService {
       throw new ConflictException('Email is already registered');
     }
 
-    const user = await this.prisma.user.create({
-      data: {
-        ...body,
-        password: await this.hashPassword(body.password),
-        role: Role.CUSTOMER,
-      },
-    });
+    let user: User;
+
+    try {
+      user = await this.prisma.user.create({
+        data: {
+          ...body,
+          password: await this.hashPassword(body.password),
+          role: Role.CUSTOMER,
+        },
+      });
+    } catch (error) {
+      if (this.isUniqueEmailError(error)) {
+        throw new ConflictException('Email is already registered');
+      }
+
+      throw error;
+    }
 
     return this.buildAuthResponse(user);
   }
@@ -81,6 +93,55 @@ export class AuthService {
     }
 
     return this.toPublicUser(user);
+  }
+
+  async updateProfile(userId: number, body: UpdateProfileDto) {
+    if (body.email) {
+      const existingUser = await this.prisma.user.findFirst({
+        where: {
+          email: body.email,
+          deletedAt: null,
+          NOT: { id: userId },
+        },
+      });
+
+      if (existingUser) {
+        throw new ConflictException('Email is already registered');
+      }
+    }
+
+    try {
+      const user = await this.prisma.user.update({
+        where: { id: userId },
+        data: body,
+      });
+
+      return this.toPublicUser(user);
+    } catch (error) {
+      if (this.isUniqueEmailError(error)) {
+        throw new ConflictException('Email is already registered');
+      }
+
+      throw error;
+    }
+  }
+
+  async changePassword(userId: number, body: ChangePasswordDto) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+    });
+
+    if (
+      !user ||
+      !(await this.verifyPassword(body.currentPassword, user.password))
+    ) {
+      throw new UnauthorizedException('Invalid current password');
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: await this.hashPassword(body.newPassword) },
+    });
   }
 
   private buildAuthResponse(user: User) {
@@ -132,6 +193,28 @@ export class AuthService {
 
   private isScryptHash(passwordHash: string) {
     return passwordHash.startsWith('scrypt$');
+  }
+
+  private isUniqueEmailError(error: unknown) {
+    if (!error || typeof error !== 'object') {
+      return false;
+    }
+
+    const prismaError = error as {
+      code?: unknown;
+      meta?: { target?: unknown; constraint?: unknown };
+      cause?: { constraint?: { fields?: unknown } };
+    };
+    const target = prismaError.meta?.target;
+    const constraint = prismaError.meta?.constraint;
+    const fields = prismaError.cause?.constraint?.fields;
+
+    return (
+      prismaError.code === 'P2002' &&
+      ((Array.isArray(target) && target.includes('email')) ||
+        (typeof constraint === 'string' && constraint.includes('email')) ||
+        (Array.isArray(fields) && fields.includes('email')))
+    );
   }
 
   private signToken(payload: Omit<JwtPayload, 'exp'>) {

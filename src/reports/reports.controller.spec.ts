@@ -7,6 +7,8 @@ describe('ReportsController', () => {
   let reportsService: {
     getSummary: jest.Mock;
     getLowStockProducts: jest.Mock;
+    getOrders: jest.Mock;
+    exportOrdersCsv: jest.Mock;
     getOrderStatusSummary: jest.Mock;
   };
 
@@ -14,6 +16,8 @@ describe('ReportsController', () => {
     reportsService = {
       getSummary: jest.fn(),
       getLowStockProducts: jest.fn(),
+      getOrders: jest.fn(),
+      exportOrdersCsv: jest.fn(),
       getOrderStatusSummary: jest.fn(),
     };
 
@@ -79,5 +83,24 @@ describe('ReportsController', () => {
       rows,
     );
     expect(reportsService.getOrderStatusSummary).toHaveBeenCalledWith(query);
+  });
+
+  it('should export orders csv with download headers', async () => {
+    const query = { endDate: '2026-07-31', status: 'SHIPPED' as const };
+    const response = { setHeader: jest.fn() };
+    reportsService.exportOrdersCsv.mockResolvedValue('Order ID\n1');
+
+    await expect(
+      controller.exportOrders(query, response as never),
+    ).resolves.toBe('Order ID\n1');
+    expect(reportsService.exportOrdersCsv).toHaveBeenCalledWith(query);
+    expect(response.setHeader).toHaveBeenCalledWith(
+      'Content-Type',
+      'text/csv; charset=utf-8',
+    );
+    expect(response.setHeader).toHaveBeenCalledWith(
+      'Content-Disposition',
+      'attachment; filename="order-report-2026-07-31.csv"',
+    );
   });
 });

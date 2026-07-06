@@ -9,6 +9,7 @@ describe('ProductService', () => {
     product: {
       findMany: jest.Mock;
       findFirst: jest.Mock;
+      count: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
     };
@@ -44,6 +45,7 @@ describe('ProductService', () => {
       product: {
         findMany: jest.fn(),
         findFirst: jest.fn(),
+        count: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
       },
@@ -71,8 +73,56 @@ describe('ProductService', () => {
 
   it('should find all products', async () => {
     prisma.product.findMany.mockResolvedValue([product]);
+    prisma.product.count.mockResolvedValue(1);
 
-    await expect(service.findAll()).resolves.toEqual([product]);
+    await expect(service.findAll()).resolves.toEqual({
+      data: [product],
+      meta: { page: 1, limit: 10, total: 1, totalPages: 1 },
+    });
+    expect(prisma.product.findMany).toHaveBeenCalledWith({
+      where: { deletedAt: null },
+      include: { category: true },
+      orderBy: { createdAt: 'desc' },
+      skip: 0,
+      take: 10,
+    });
+  });
+
+  it('should filter products by search, category, status, price, and low stock', async () => {
+    prisma.product.findMany.mockResolvedValue([product]);
+    prisma.product.count.mockResolvedValue(1);
+
+    await service.findAll({
+      search: 'coffee',
+      categoryId: 1,
+      status: ProductStatus.ACTIVE,
+      minPrice: 50,
+      maxPrice: 100,
+      lowStock: true,
+      sortBy: 'price',
+      sortOrder: 'asc',
+    });
+
+    expect(prisma.product.findMany).toHaveBeenCalledWith({
+      where: {
+        deletedAt: null,
+        categoryId: 1,
+        status: ProductStatus.ACTIVE,
+        price: { gte: 50, lte: 100 },
+        stock: { lte: 5 },
+        OR: [
+          { name: { contains: 'coffee', mode: 'insensitive' } },
+          { description: { contains: 'coffee', mode: 'insensitive' } },
+          {
+            category: { name: { contains: 'coffee', mode: 'insensitive' } },
+          },
+        ],
+      },
+      include: { category: true },
+      orderBy: { price: 'asc' },
+      skip: 0,
+      take: 10,
+    });
   });
 
   it('should create a product when category exists', async () => {

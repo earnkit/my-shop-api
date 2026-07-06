@@ -65,14 +65,50 @@ describe('ProductController (e2e)', () => {
   });
 
   it('GET /product', async () => {
-    productService.findAll.mockResolvedValue([product]);
+    const result = {
+      data: [product],
+      meta: { page: 1, limit: 10, total: 1, totalPages: 1 },
+    };
+    productService.findAll.mockResolvedValue(result);
 
     await request(app.getHttpServer())
       .get('/product')
       .expect(200)
-      .expect([product]);
+      .expect(result);
 
-    expect(productService.findAll).toHaveBeenCalled();
+    expect(productService.findAll).toHaveBeenCalledWith({});
+  });
+
+  it('GET /products alias', async () => {
+    const result = {
+      data: [product],
+      meta: { page: 1, limit: 12, total: 1, totalPages: 1 },
+    };
+    productService.findAll.mockResolvedValue(result);
+
+    await request(app.getHttpServer())
+      .get('/products')
+      .query({
+        page: 1,
+        limit: 12,
+        status: ProductStatus.ACTIVE,
+        search: 'milk',
+        minPrice: 10,
+        maxPrice: 100,
+        lowStock: true,
+      })
+      .expect(200)
+      .expect(result);
+
+    expect(productService.findAll).toHaveBeenCalledWith({
+      page: 1,
+      limit: 12,
+      status: ProductStatus.ACTIVE,
+      search: 'milk',
+      minPrice: 10,
+      maxPrice: 100,
+      lowStock: true,
+    });
   });
 
   it('GET /product/:id', async () => {

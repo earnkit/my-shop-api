@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { OrderStatus } from '@prisma/client';
+import { AuthService } from '../auth/auth.service';
 import { OrderController } from './order.controller';
 import { OrderService } from './order.service';
 
@@ -7,9 +8,14 @@ describe('OrderController', () => {
   let controller: OrderController;
   let orderService: {
     create: jest.Mock;
+    createForUser: jest.Mock;
     getOrders: jest.Mock;
+    getMyOrders: jest.Mock;
     getOrderDetail: jest.Mock;
     updateStatus: jest.Mock;
+  };
+  let authService: {
+    getProfileFromToken: jest.Mock;
   };
 
   const order = {
@@ -26,9 +32,14 @@ describe('OrderController', () => {
   beforeEach(async () => {
     orderService = {
       create: jest.fn(),
+      createForUser: jest.fn(),
       getOrders: jest.fn(),
+      getMyOrders: jest.fn(),
       getOrderDetail: jest.fn(),
       updateStatus: jest.fn(),
+    };
+    authService = {
+      getProfileFromToken: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -37,6 +48,10 @@ describe('OrderController', () => {
         {
           provide: OrderService,
           useValue: orderService,
+        },
+        {
+          provide: AuthService,
+          useValue: authService,
         },
       ],
     }).compile();
@@ -50,7 +65,9 @@ describe('OrderController', () => {
 
   it('should delegate order actions to service', async () => {
     orderService.create.mockResolvedValue(order);
+    orderService.createForUser.mockResolvedValue(order);
     orderService.getOrders.mockResolvedValue([order]);
+    orderService.getMyOrders.mockResolvedValue([order]);
     orderService.getOrderDetail.mockResolvedValue(order);
     orderService.updateStatus.mockResolvedValue({
       ...order,
@@ -60,10 +77,26 @@ describe('OrderController', () => {
     await expect(
       controller.create({ userId: 1, items: [{ productId: 1, quantity: 2 }] }),
     ).resolves.toEqual(order);
+    await expect(
+      controller.createMyOrder({ user: { id: 1 } } as never, {
+        items: [{ productId: 1, quantity: 2 }],
+      }),
+    ).resolves.toEqual(order);
     await expect(controller.getOrders()).resolves.toEqual([order]);
+    await expect(
+      controller.getMyOrders({ user: { id: 1 } } as never, {
+        status: OrderStatus.PAID,
+      }),
+    ).resolves.toEqual([order]);
     await expect(controller.getOrderDetail(1)).resolves.toEqual(order);
     await expect(
       controller.updateStatus(1, { status: OrderStatus.PAID }),
     ).resolves.toEqual({ ...order, status: OrderStatus.PAID });
+    expect(orderService.createForUser).toHaveBeenCalledWith(1, {
+      items: [{ productId: 1, quantity: 2 }],
+    });
+    expect(orderService.getMyOrders).toHaveBeenCalledWith(1, {
+      status: OrderStatus.PAID,
+    });
   });
 });

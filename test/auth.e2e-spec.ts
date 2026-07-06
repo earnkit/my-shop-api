@@ -11,6 +11,8 @@ describe('AuthController (e2e)', () => {
     register: jest.Mock;
     login: jest.Mock;
     getProfileFromToken: jest.Mock;
+    updateProfile: jest.Mock;
+    changePassword: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -18,6 +20,8 @@ describe('AuthController (e2e)', () => {
       register: jest.fn(),
       login: jest.fn(),
       getProfileFromToken: jest.fn(),
+      updateProfile: jest.fn(),
+      changePassword: jest.fn(),
     };
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -101,5 +105,59 @@ describe('AuthController (e2e)', () => {
   it('GET /auth/profile returns 401 without bearer token', async () => {
     await request(app.getHttpServer()).get('/auth/profile').expect(401);
     expect(authService.getProfileFromToken).not.toHaveBeenCalled();
+  });
+
+  it('PATCH /auth/profile', async () => {
+    const profile = {
+      id: 1,
+      name: 'Earn',
+      email: 'earn@example.com',
+      role: 'CUSTOMER',
+    };
+    const body = {
+      name: 'New Earn',
+      tel: '0899999999',
+    };
+    const updatedProfile = {
+      ...profile,
+      ...body,
+    };
+    authService.getProfileFromToken.mockResolvedValue(profile);
+    authService.updateProfile.mockResolvedValue(updatedProfile);
+
+    await request(app.getHttpServer())
+      .patch('/auth/profile')
+      .set('Authorization', 'Bearer valid-token')
+      .send(body)
+      .expect(200)
+      .expect(updatedProfile);
+
+    expect(authService.getProfileFromToken).toHaveBeenCalledWith('valid-token');
+    expect(authService.updateProfile).toHaveBeenCalledWith(1, body);
+  });
+
+  it('PATCH /auth/change-password', async () => {
+    const profile = {
+      id: 1,
+      name: 'Earn',
+      email: 'earn@example.com',
+      role: 'CUSTOMER',
+    };
+    const body = {
+      currentPassword: 'password123',
+      newPassword: 'newPassword123',
+    };
+    authService.getProfileFromToken.mockResolvedValue(profile);
+    authService.changePassword.mockResolvedValue(undefined);
+
+    await request(app.getHttpServer())
+      .patch('/auth/change-password')
+      .set('Authorization', 'Bearer valid-token')
+      .send(body)
+      .expect(204)
+      .expect('');
+
+    expect(authService.getProfileFromToken).toHaveBeenCalledWith('valid-token');
+    expect(authService.changePassword).toHaveBeenCalledWith(1, body);
   });
 });

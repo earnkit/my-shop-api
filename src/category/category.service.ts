@@ -1,9 +1,13 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { getPagination, toPaginatedResponse } from '../common/pagination';
 import { PrismaService } from '../prisma/prisma.service';
+import { CategoryListQueryDto } from './dto/category-list-query.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 
@@ -11,11 +15,29 @@ import { UpdateCategoryDto } from './dto/update-category.dto';
 export class CategoryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll() {
-    return this.prisma.category.findMany({
-      where: { deletedAt: null },
-      orderBy: { id: 'asc' },
-    });
+  async findAll(query: CategoryListQueryDto = {}) {
+    const { page, limit, skip } = getPagination(query);
+    const search = query.search;
+    const where: Prisma.CategoryWhereInput = {
+      deletedAt: null,
+      ...(search && {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } },
+        ],
+      }),
+    };
+    const [categories, total] = await Promise.all([
+      this.prisma.category.findMany({
+        where,
+        orderBy: { [query.sortBy ?? 'createdAt']: query.sortOrder ?? 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.category.count({ where }),
+    ]);
+
+    return toPaginatedResponse(categories, { page, limit }, total);
   }
 
   async getById(id: number) {
@@ -33,19 +55,43 @@ export class CategoryService {
     return category;
   }
 
-  create(body: CreateCategoryDto) {
-    return this.prisma.category.create({
-      data: body,
-    });
+  async create(body: CreateCategoryDto) {
+    await this.ensureNameAvailable(body.name);
+
+    try {
+      return await this.prisma.category.create({
+        data: body,
+      });
+    } catch (error) {
+      if (this.isUniqueNameError(error)) {
+        throw new ConflictException('Category name already exists');
+      }
+
+      throw error;
+    }
   }
 
   async update(id: number, body: UpdateCategoryDto) {
-    await this.getById(id);
+    const categoryId = this.parseId(id);
 
-    return this.prisma.category.update({
-      where: { id: this.parseId(id) },
-      data: body,
-    });
+    await this.getById(categoryId);
+
+    if (body.name) {
+      await this.ensureNameAvailable(body.name, categoryId);
+    }
+
+    try {
+      return await this.prisma.category.update({
+        where: { id: categoryId },
+        data: body,
+      });
+    } catch (error) {
+      if (this.isUniqueNameError(error)) {
+        throw new ConflictException('Category name already exists');
+      }
+
+      throw error;
+    }
   }
 
   async delete(id: number) {
@@ -63,5 +109,41 @@ export class CategoryService {
     }
 
     return id;
+  }
+
+  private async ensureNameAvailable(name: string, excludeId?: number) {
+    const existingCategory = await this.prisma.category.findFirst({
+      where: {
+        name,
+        deletedAt: null,
+        ...(excludeId && { NOT: { id: excludeId } }),
+      },
+    });
+
+    if (existingCategory) {
+      throw new ConflictException('Category name already exists');
+    }
+  }
+
+  private isUniqueNameError(error: unknown) {
+    if (!error || typeof error !== 'object') {
+      return false;
+    }
+
+    const prismaError = error as {
+      code?: unknown;
+      meta?: { target?: unknown; constraint?: unknown };
+      cause?: { constraint?: { fields?: unknown } };
+    };
+    const target = prismaError.meta?.target;
+    const constraint = prismaError.meta?.constraint;
+    const fields = prismaError.cause?.constraint?.fields;
+
+    return (
+      prismaError.code === 'P2002' &&
+      ((Array.isArray(target) && target.includes('name')) ||
+        (typeof constraint === 'string' && constraint.includes('name')) ||
+        (Array.isArray(fields) && fields.includes('name')))
+    );
   }
 }

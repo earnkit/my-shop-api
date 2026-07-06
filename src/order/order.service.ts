@@ -3,9 +3,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ProductStatus } from '@prisma/client';
+import { Prisma, ProductStatus } from '@prisma/client';
+import { getBangkokDateRangeWhere } from '../common/date-range';
+import { getPagination, toPaginatedResponse } from '../common/pagination';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreateMyOrderDto } from './dto/create-my-order.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { OrderListQueryDto } from './dto/order-list-query.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 
 @Injectable()
@@ -13,7 +17,18 @@ export class OrderService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(body: CreateOrderDto) {
-    await this.ensureUserExists(body.userId);
+    return this.createWithUserId(body.userId, body);
+  }
+
+  async createForUser(userId: number, body: CreateMyOrderDto) {
+    return this.createWithUserId(userId, body);
+  }
+
+  private async createWithUserId(
+    userId: number,
+    body: Pick<CreateOrderDto, 'items'>,
+  ) {
+    await this.ensureUserExists(userId);
 
     const quantityByProductId = body.items.reduce((acc, item) => {
       acc.set(item.productId, (acc.get(item.productId) ?? 0) + item.quantity);
@@ -63,7 +78,7 @@ export class OrderService {
     return this.prisma.$transaction(async (tx) => {
       const order = await tx.order.create({
         data: {
-          userId: body.userId,
+          userId,
           totalAmount,
           items: {
             create: orderItems,
@@ -90,17 +105,74 @@ export class OrderService {
     });
   }
 
-  getOrders() {
-    return this.prisma.order.findMany({
-      where: { deletedAt: null },
-      include: {
-        user: true,
-        items: {
-          include: { product: true },
+  async getMyOrders(userId: number, query: OrderListQueryDto = {}) {
+    const { page, limit, skip } = getPagination(query);
+    const where: Prisma.OrderWhereInput = {
+      userId,
+      deletedAt: null,
+      ...getBangkokDateRangeWhere(query),
+      ...(query.status && { status: query.status }),
+    };
+    const [orders, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        include: {
+          items: {
+            include: { product: true },
+          },
         },
+        orderBy: { [query.sortBy ?? 'createdAt']: query.sortOrder ?? 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.order.count({ where }),
+    ]);
+
+    return toPaginatedResponse(orders, { page, limit }, total);
+  }
+
+  async getOrders(query: OrderListQueryDto = {}) {
+    const { page, limit, skip } = getPagination(query);
+    const search = query.search;
+    const orderId = search && /^\d+$/.test(search) ? Number(search) : undefined;
+    const where: Prisma.OrderWhereInput = {
+      deletedAt: null,
+      ...getBangkokDateRangeWhere(query),
+      ...(query.status && { status: query.status }),
+      ...(query.productId && {
+        items: {
+          some: {
+            productId: query.productId,
+          },
+        },
+      }),
+      ...(query.userId && { userId: query.userId }),
+      ...(search && {
+        OR: [
+          ...(orderId ? [{ id: orderId }] : []),
+          { user: { name: { contains: search, mode: 'insensitive' } } },
+          { user: { email: { contains: search, mode: 'insensitive' } } },
+        ],
+      }),
+    };
+    const include = {
+      user: true,
+      items: {
+        include: { product: true },
       },
-      orderBy: { id: 'desc' },
-    });
+    };
+    const [orders, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        include,
+        orderBy: { [query.sortBy ?? 'createdAt']: query.sortOrder ?? 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.order.count({ where }),
+    ]);
+
+    return toPaginatedResponse(orders, { page, limit }, total);
   }
 
   async getOrderDetail(id: number) {

@@ -137,4 +137,74 @@ describe('AuthService', () => {
       );
     });
   });
+
+  describe('updateProfile', () => {
+    it('should update the authenticated user profile', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+      prisma.user.update.mockResolvedValue({
+        ...user,
+        name: 'New Earn',
+        tel: '0899999999',
+      });
+
+      await expect(
+        service.updateProfile(1, {
+          name: 'New Earn',
+          tel: '0899999999',
+        }),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          id: 1,
+          name: 'New Earn',
+          tel: '0899999999',
+        }),
+      );
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: {
+          name: 'New Earn',
+          tel: '0899999999',
+        },
+      });
+    });
+
+    it('should throw ConflictException when another active user uses the email', async () => {
+      prisma.user.findFirst.mockResolvedValue({ ...user, id: 2 });
+
+      await expect(
+        service.updateProfile(1, { email: 'earn@example.com' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('changePassword', () => {
+    it('should change the password when the current password is valid', async () => {
+      prisma.user.findFirst.mockResolvedValue(user);
+      prisma.user.update.mockResolvedValue(user);
+
+      await expect(
+        service.changePassword(1, {
+          currentPassword: 'secret',
+          newPassword: 'newPassword123',
+        }),
+      ).resolves.toBeUndefined();
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: { password: expect.stringMatching(/^scrypt\$/) },
+      });
+    });
+
+    it('should throw UnauthorizedException when the current password is invalid', async () => {
+      prisma.user.findFirst.mockResolvedValue(user);
+
+      await expect(
+        service.changePassword(1, {
+          currentPassword: 'wrong-password',
+          newPassword: 'newPassword123',
+        }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+  });
 });

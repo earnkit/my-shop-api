@@ -6,10 +6,17 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
+  Req,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { AuthGuard } from '../auth/auth.guard';
+import type { AuthenticatedRequest } from '../auth/auth.guard';
 import { OrderService } from './order.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { CreateMyOrderDto } from './dto/create-my-order.dto';
+import { OrderListQueryDto } from './dto/order-list-query.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 
 @ApiTags('Order')
@@ -23,10 +30,32 @@ export class OrderController {
     return this.orderService.create(body);
   }
 
+  @Post('my-orders')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create a new order for authenticated customer' })
+  createMyOrder(
+    @Req() request: AuthenticatedRequest,
+    @Body() body: CreateMyOrderDto,
+  ) {
+    return this.orderService.createForUser(request.user.id, body);
+  }
+
   @Get()
   @ApiOperation({ summary: 'Find all orders' })
-  getOrders() {
-    return this.orderService.getOrders();
+  getOrders(@Query() query: OrderListQueryDto) {
+    return this.orderService.getOrders(query);
+  }
+
+  @Get('my-orders')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Find orders for authenticated customer' })
+  getMyOrders(
+    @Req() request: AuthenticatedRequest,
+    @Query() query: OrderListQueryDto,
+  ) {
+    return this.orderService.getMyOrders(request.user.id, query);
   }
 
   @Get(':id')

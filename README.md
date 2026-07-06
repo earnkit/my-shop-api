@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-My Shop API is a RESTful backend project built with NestJS, Prisma, PostgreSQL, and Docker. It supports authentication, user management, category and product management, order creation, stock validation, order transaction handling, report APIs for dashboard data, Swagger API documentation, request validation, and automated unit/e2e tests.
+My Shop API is a RESTful backend project built with NestJS, Prisma, PostgreSQL, and Docker. It supports authentication, profile management, user management, category and product management, order creation, customer order history, stock validation, order transaction handling, report APIs for dashboard data and CSV export, Swagger API documentation, request validation, and automated unit/e2e tests.
 
 The project is structured as a modular backend API for a shop management or e-commerce system, with clear separation between authentication, users, categories, products, orders, reports, and database access.
 
@@ -24,15 +24,18 @@ The project is structured as a modular backend API for a shop management or e-co
 - Password hashing with `scrypt`
 - Custom JWT-like token authentication using HMAC SHA-256
 - Protected profile endpoint
+- Profile update and password change endpoints
 - Users CRUD with soft delete
 - Category CRUD with soft delete
-- Product CRUD with category relation, stock, and status
+- Product CRUD with category relation, stock, status, filters, and `/products` alias
 - Order creation with order items
+- Authenticated customer order creation and customer order list
 - Stock validation before creating orders
 - Order transaction using Prisma transaction
 - Stock decrement after order creation
 - Order status update
-- Reports API for dashboard summary, low-stock products, and order status summary
+- Paginated list APIs with search, sort, and filters
+- Reports API for dashboard summary, low-stock products, order reports, CSV export, and order status summary
 - DTO validation with global `ValidationPipe`
 - Swagger API documentation
 - Unit testing and e2e testing
@@ -63,6 +66,8 @@ test/         End-to-end test suites
 | POST | `/auth/register` | Register a new user | No |
 | POST | `/auth/login` | Login with email and password | No |
 | GET | `/auth/profile` | Get authenticated user profile | Yes |
+| PATCH | `/auth/profile` | Update authenticated user profile | Yes |
+| PATCH | `/auth/change-password` | Change authenticated user password | Yes |
 
 ### Users
 
@@ -90,6 +95,7 @@ test/         End-to-end test suites
 | Method | Endpoint | Description | Auth Required |
 | --- | --- | --- | --- |
 | GET | `/product` | Get all active products | No |
+| GET | `/products` | Alias for product list | No |
 | GET | `/product/:id` | Get a product by ID | No |
 | POST | `/product` | Create a new product | No |
 | PUT | `/product/:id` | Update a product by ID | No |
@@ -100,7 +106,9 @@ test/         End-to-end test suites
 | Method | Endpoint | Description | Auth Required |
 | --- | --- | --- | --- |
 | POST | `/order` | Create an order with order items | No |
+| POST | `/order/my-orders` | Create an order for the authenticated customer | Yes |
 | GET | `/order` | Get all active orders | No |
+| GET | `/order/my-orders` | Get orders for the authenticated customer | Yes |
 | GET | `/order/:id` | Get order detail by ID | No |
 | PATCH | `/order/:id/status` | Update order status | No |
 
@@ -110,7 +118,39 @@ test/         End-to-end test suites
 | --- | --- | --- | --- |
 | GET | `/reports/summary` | Get dashboard summary data | No |
 | GET | `/reports/low-stock-products` | Get active products with low stock | No |
+| GET | `/reports/orders` | Get paginated order report data | No |
+| GET | `/reports/orders/export` | Export filtered order report as CSV | No |
 | GET | `/reports/order-status-summary` | Get order count grouped by status | No |
+
+## List Response Format
+
+List endpoints return paginated responses:
+
+```json
+{
+  "data": [],
+  "meta": {
+    "page": 1,
+    "limit": 10,
+    "total": 0,
+    "totalPages": 0
+  }
+}
+```
+
+Common query params for list endpoints:
+
+- `page`, `limit`
+- `search`
+- `sortOrder`: `asc` or `desc`
+
+Module-specific filters:
+
+- `/users`: `role`, `sortBy` (`createdAt`, `name`, `email`, `role`)
+- `/category`: `sortBy` (`createdAt`, `name`)
+- `/product` and `/products`: `categoryId`, `status`, `minPrice`, `maxPrice`, `lowStock`, `sortBy` (`createdAt`, `name`, `price`, `stock`, `status`)
+- `/order`: `status`, `startDate`, `endDate`, `productId`, `userId`, `sortBy` (`createdAt`, `totalAmount`, `status`)
+- `/order/my-orders`: `status`, `startDate`, `endDate`, `sortBy` (`createdAt`, `totalAmount`, `status`)
 
 ## Reports API
 
@@ -118,19 +158,23 @@ test/         End-to-end test suites
 
 - `GET /reports/summary` returns total users, categories, products, orders, total sales amount, and low-stock count.
 - `GET /reports/low-stock-products` returns active products with stock less than or equal to a threshold.
+- `GET /reports/orders` returns paginated order report rows plus report summary totals.
+- `GET /reports/orders/export` returns the filtered order report as a CSV download.
 - `GET /reports/order-status-summary` returns order counts grouped by order status.
 
 Supported query params:
 
 - `/reports/summary`: optional `startDate`, `endDate`
 - `/reports/low-stock-products`: optional `threshold`, `limit`
+- `/reports/orders`: optional `startDate`, `endDate`, `search`, `productId`, `userId`, `status`, `sortBy`, `sortOrder`, `page`, `limit`
+- `/reports/orders/export`: optional `startDate`, `endDate`, `search`, `productId`, `userId`, `status`, `sortBy`, `sortOrder`
 - `/reports/order-status-summary`: optional `startDate`, `endDate`
 
 ## Authentication
 
 Users register with `name`, `email`, and `password`. Passwords are hashed with `scrypt` before saving to the database.
 
-After login, the API returns an `accessToken` and the public user data. Protected endpoints use the `Authorization` header:
+After register or login, the API returns an `accessToken` and the public user data. Protected endpoints use the `Authorization` header:
 
 ```http
 Authorization: Bearer <access_token>
@@ -139,6 +183,8 @@ Authorization: Bearer <access_token>
 The access token lifetime is configured with `JWT_EXPIRES_IN` and defaults to `1d`. After it expires, the user needs to log in again to receive a new token.
 
 This project uses a custom JWT-like token implementation signed with HMAC SHA-256. It does not use @nestjs/jwt.
+
+Authenticated customers can use `POST /order/my-orders` to create an order without sending `userId`; the API uses the user ID from the access token. They can also use `GET /order/my-orders` to view their own order history.
 
 ## Validation and Error Handling
 
@@ -261,11 +307,13 @@ Current verification:
 
 1. Register a user with `POST /auth/register`.
 2. Login with `POST /auth/login` to get an access token.
-3. Create a category with `POST /category`.
-4. Create a product with `POST /product`.
-5. Create an order with `POST /order`.
-6. Check order detail with `GET /order/:id`.
-7. View dashboard data with `GET /reports/summary`.
+3. Read or update the profile with `GET /auth/profile` or `PATCH /auth/profile`.
+4. Create a category with `POST /category`.
+5. Create a product with `POST /product`.
+6. Create a customer order with `POST /order/my-orders` and a bearer token, or create an admin-style order with `POST /order`.
+7. Check order detail with `GET /order/:id`.
+8. View dashboard data with `GET /reports/summary`.
+9. Export order reports with `GET /reports/orders/export`.
 
 ## Key Learning / Highlights
 
@@ -273,5 +321,7 @@ Current verification:
 - Implemented authentication and password hashing
 - Designed relational data models with Prisma
 - Handled order transactions and stock updates
+- Added pagination, search, sorting, and filters for operational list screens
+- Added customer order endpoints and order report CSV export
 - Added validation, error handling, Swagger documentation, and automated tests
 - Added unit and e2e tests for core API modules

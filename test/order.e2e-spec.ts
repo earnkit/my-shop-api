@@ -3,6 +3,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { OrderStatus } from '@prisma/client';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import { AuthService } from '../src/auth/auth.service';
 import { OrderController } from '../src/order/order.controller';
 import { OrderService } from '../src/order/order.service';
 
@@ -10,9 +11,14 @@ describe('OrderController (e2e)', () => {
   let app: INestApplication<App>;
   let orderService: {
     create: jest.Mock;
+    createForUser: jest.Mock;
     getOrders: jest.Mock;
+    getMyOrders: jest.Mock;
     getOrderDetail: jest.Mock;
     updateStatus: jest.Mock;
+  };
+  let authService: {
+    getProfileFromToken: jest.Mock;
   };
 
   const order = {
@@ -29,9 +35,14 @@ describe('OrderController (e2e)', () => {
   beforeEach(async () => {
     orderService = {
       create: jest.fn(),
+      createForUser: jest.fn(),
       getOrders: jest.fn(),
+      getMyOrders: jest.fn(),
       getOrderDetail: jest.fn(),
       updateStatus: jest.fn(),
+    };
+    authService = {
+      getProfileFromToken: jest.fn(),
     };
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -40,6 +51,10 @@ describe('OrderController (e2e)', () => {
         {
           provide: OrderService,
           useValue: orderService,
+        },
+        {
+          provide: AuthService,
+          useValue: authService,
         },
       ],
     }).compile();
@@ -72,14 +87,74 @@ describe('OrderController (e2e)', () => {
     expect(orderService.create).toHaveBeenCalledWith(body);
   });
 
+  it('POST /order/my-orders', async () => {
+    const body = { items: [{ productId: 1, quantity: 2 }] };
+    const profile = { id: 1, name: 'Earn', email: 'earn@example.com' };
+    authService.getProfileFromToken.mockResolvedValue(profile);
+    orderService.createForUser.mockResolvedValue(order);
+
+    await request(app.getHttpServer())
+      .post('/order/my-orders')
+      .set('Authorization', 'Bearer valid-token')
+      .send(body)
+      .expect(201)
+      .expect(order);
+
+    expect(authService.getProfileFromToken).toHaveBeenCalledWith('valid-token');
+    expect(orderService.createForUser).toHaveBeenCalledWith(1, body);
+  });
+
   it('GET /order', async () => {
-    orderService.getOrders.mockResolvedValue([order]);
+    const result = {
+      data: [order],
+      meta: { page: 1, limit: 10, total: 1, totalPages: 1 },
+    };
+    orderService.getOrders.mockResolvedValue(result);
 
     await request(app.getHttpServer())
       .get('/order')
+      .query({
+        page: 1,
+        limit: 10,
+        status: OrderStatus.PAID,
+        productId: 1,
+        userId: 1,
+        search: 'earn',
+      })
       .expect(200)
-      .expect([order]);
-    expect(orderService.getOrders).toHaveBeenCalled();
+      .expect(result);
+    expect(orderService.getOrders).toHaveBeenCalledWith({
+      page: 1,
+      limit: 10,
+      status: OrderStatus.PAID,
+      productId: 1,
+      userId: 1,
+      search: 'earn',
+    });
+  });
+
+  it('GET /order/my-orders', async () => {
+    const profile = { id: 1, name: 'Earn', email: 'earn@example.com' };
+    const result = {
+      data: [order],
+      meta: { page: 1, limit: 10, total: 1, totalPages: 1 },
+    };
+    authService.getProfileFromToken.mockResolvedValue(profile);
+    orderService.getMyOrders.mockResolvedValue(result);
+
+    await request(app.getHttpServer())
+      .get('/order/my-orders')
+      .query({ page: 1, limit: 10, status: OrderStatus.PAID })
+      .set('Authorization', 'Bearer valid-token')
+      .expect(200)
+      .expect(result);
+
+    expect(authService.getProfileFromToken).toHaveBeenCalledWith('valid-token');
+    expect(orderService.getMyOrders).toHaveBeenCalledWith(1, {
+      page: 1,
+      limit: 10,
+      status: OrderStatus.PAID,
+    });
   });
 
   it('GET /order/:id', async () => {

@@ -21,7 +21,6 @@ describe('UsersController (e2e)', () => {
     id: 1,
     name: 'Earn',
     email: 'earn@example.com',
-    password: 'password123',
     tel: '0812345678',
     image: 'https://example.com/avatar.png',
     role: Role.CUSTOMER,
@@ -66,10 +65,23 @@ describe('UsersController (e2e)', () => {
   });
 
   it('GET /users', async () => {
-    usersService.findAll.mockResolvedValue([user]);
+    const result = {
+      data: [user],
+      meta: { page: 1, limit: 10, total: 1, totalPages: 1 },
+    };
+    usersService.findAll.mockResolvedValue(result);
 
-    await request(app.getHttpServer()).get('/users').expect(200).expect([user]);
-    expect(usersService.findAll).toHaveBeenCalled();
+    await request(app.getHttpServer())
+      .get('/users')
+      .query({ page: 1, limit: 10, role: Role.CUSTOMER, search: 'earn' })
+      .expect(200)
+      .expect(result);
+    expect(usersService.findAll).toHaveBeenCalledWith({
+      page: 1,
+      limit: 10,
+      role: Role.CUSTOMER,
+      search: 'earn',
+    });
   });
 
   it('GET /users/:id', async () => {
@@ -83,7 +95,7 @@ describe('UsersController (e2e)', () => {
     const body = {
       name: user.name,
       email: user.email,
-      password: user.password,
+      password: 'password123',
       tel: user.tel,
       image: user.image,
       role: user.role,

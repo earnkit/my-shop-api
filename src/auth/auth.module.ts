@@ -8,5 +8,6 @@ import { AuthGuard } from './auth.guard';
   imports: [PrismaModule],
   providers: [AuthService, AuthGuard],
   controllers: [AuthController],
+  exports: [AuthService, AuthGuard],
 })
 export class AuthModule {}

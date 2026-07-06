@@ -6,22 +6,24 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Query,
   Put,
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ProductService } from './product.service';
 import { CreateProductDto } from './dto/create-product.dto';
+import { ProductListQueryDto } from './dto/product-list-query.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 
 @ApiTags('Product')
-@Controller('product')
+@Controller(['product', 'products'])
 export class ProductController {
   constructor(private readonly productService: ProductService) {}
 
   @Get()
   @ApiOperation({ summary: 'Find all products' })
-  findAll() {
-    return this.productService.findAll();
+  findAll(@Query() query: ProductListQueryDto) {
+    return this.productService.findAll(query);
   }
 
   @Get(':id')

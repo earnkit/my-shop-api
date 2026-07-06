@@ -7,12 +7,16 @@ describe('AuthController', () => {
   let authService: {
     register: jest.Mock;
     login: jest.Mock;
+    updateProfile: jest.Mock;
+    changePassword: jest.Mock;
   };
 
   beforeEach(async () => {
     authService = {
       register: jest.fn(),
       login: jest.fn(),
+      updateProfile: jest.fn(),
+      changePassword: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -53,5 +57,40 @@ describe('AuthController', () => {
 
     expect(controller.login(body)).toEqual({ accessToken: 'token' });
     expect(authService.login).toHaveBeenCalledWith(body);
+  });
+
+  it('should update the authenticated user profile', () => {
+    const request = {
+      user: { id: 1 },
+    };
+    const body = {
+      name: 'New Earn',
+      tel: '0899999999',
+    };
+    const profile = {
+      id: 1,
+      name: 'New Earn',
+      email: 'earn@example.com',
+      tel: '0899999999',
+    };
+    authService.updateProfile.mockReturnValue(profile);
+
+    expect(controller.updateProfile(request as never, body)).toEqual(profile);
+    expect(authService.updateProfile).toHaveBeenCalledWith(1, body);
+  });
+
+  it('should change the authenticated user password', () => {
+    const request = {
+      user: { id: 1 },
+    };
+    const body = {
+      currentPassword: 'password123',
+      newPassword: 'newPassword123',
+    };
+
+    authService.changePassword.mockReturnValue(undefined);
+
+    expect(controller.changePassword(request as never, body)).toBeUndefined();
+    expect(authService.changePassword).toHaveBeenCalledWith(1, body);
   });
 });

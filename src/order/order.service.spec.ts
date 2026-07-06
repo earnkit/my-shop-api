@@ -17,6 +17,7 @@ describe('OrderService', () => {
     order: {
       findMany: jest.Mock;
       findFirst: jest.Mock;
+      count: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
     };
@@ -84,6 +85,7 @@ describe('OrderService', () => {
       order: {
         findMany: jest.fn(),
         findFirst: jest.fn(),
+        count: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
       },
@@ -143,10 +145,161 @@ describe('OrderService', () => {
     });
   });
 
+  it('should create an order for a user from token and decrement stock', async () => {
+    prisma.user.findFirst.mockResolvedValue(user);
+    prisma.product.findMany.mockResolvedValue([product]);
+    prisma.order.create.mockResolvedValue(order);
+    prisma.product.update.mockResolvedValue(product);
+
+    await expect(
+      service.createForUser(1, {
+        items: [{ productId: 1, quantity: 2 }],
+      }),
+    ).resolves.toEqual(order);
+    expect(prisma.order.create).toHaveBeenCalledWith({
+      data: {
+        userId: 1,
+        totalAmount: 120,
+        items: {
+          create: [
+            {
+              productId: 1,
+              quantity: 2,
+              price: 60,
+              subtotal: 120,
+            },
+          ],
+        },
+      },
+      include: {
+        user: true,
+        items: {
+          include: { product: true },
+        },
+      },
+    });
+    expect(prisma.product.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { stock: { decrement: 2 } },
+    });
+  });
+
+  it('should get orders for a user', async () => {
+    prisma.order.findMany.mockResolvedValue([order]);
+    prisma.order.count.mockResolvedValue(1);
+
+    await expect(service.getMyOrders(1)).resolves.toEqual({
+      data: [order],
+      meta: { page: 1, limit: 10, total: 1, totalPages: 1 },
+    });
+    expect(prisma.order.findMany).toHaveBeenCalledWith({
+      where: { userId: 1, deletedAt: null },
+      include: {
+        items: {
+          include: { product: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      skip: 0,
+      take: 10,
+    });
+  });
+
+  it('should filter orders for a user by status and date', async () => {
+    prisma.order.findMany.mockResolvedValue([order]);
+    prisma.order.count.mockResolvedValue(1);
+
+    await service.getMyOrders(1, {
+      status: OrderStatus.PAID,
+      startDate: '2026-07-01',
+      endDate: '2026-07-31',
+      page: 2,
+      limit: 5,
+    });
+
+    expect(prisma.order.findMany).toHaveBeenCalledWith({
+      where: {
+        userId: 1,
+        deletedAt: null,
+        createdAt: {
+          gte: new Date('2026-06-30T17:00:00.000Z'),
+          lte: new Date('2026-07-31T16:59:59.999Z'),
+        },
+        status: OrderStatus.PAID,
+      },
+      include: {
+        items: {
+          include: { product: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      skip: 5,
+      take: 5,
+    });
+  });
+
   it('should get orders', async () => {
     prisma.order.findMany.mockResolvedValue([order]);
+    prisma.order.count.mockResolvedValue(1);
 
-    await expect(service.getOrders()).resolves.toEqual([order]);
+    await expect(service.getOrders()).resolves.toEqual({
+      data: [order],
+      meta: { page: 1, limit: 10, total: 1, totalPages: 1 },
+    });
+    expect(prisma.order.findMany).toHaveBeenCalledWith({
+      where: { deletedAt: null },
+      include: {
+        user: true,
+        items: {
+          include: { product: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      skip: 0,
+      take: 10,
+    });
+  });
+
+  it('should filter orders by status, date, product, user, and search', async () => {
+    prisma.order.findMany.mockResolvedValue([order]);
+    prisma.order.count.mockResolvedValue(1);
+
+    await service.getOrders({
+      search: 'earn',
+      status: OrderStatus.PAID,
+      startDate: '2026-07-01',
+      endDate: '2026-07-06',
+      productId: 1,
+      userId: 1,
+      sortBy: 'totalAmount',
+      sortOrder: 'asc',
+    });
+
+    expect(prisma.order.findMany).toHaveBeenCalledWith({
+      where: {
+        deletedAt: null,
+        createdAt: {
+          gte: new Date('2026-06-30T17:00:00.000Z'),
+          lte: new Date('2026-07-06T16:59:59.999Z'),
+        },
+        status: OrderStatus.PAID,
+        items: { some: { productId: 1 } },
+        userId: 1,
+        OR: [
+          { user: { name: { contains: 'earn', mode: 'insensitive' } } },
+          { user: { email: { contains: 'earn', mode: 'insensitive' } } },
+        ],
+      },
+      include: {
+        user: true,
+        items: {
+          include: { product: true },
+        },
+      },
+      orderBy: { totalAmount: 'asc' },
+      skip: 0,
+      take: 10,
+    });
   });
 
   it('should get order detail', async () => {

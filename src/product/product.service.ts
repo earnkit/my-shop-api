@@ -3,20 +3,61 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { getPagination, toPaginatedResponse } from '../common/pagination';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
+import { ProductListQueryDto } from './dto/product-list-query.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 
 @Injectable()
 export class ProductService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll() {
-    return this.prisma.product.findMany({
-      where: { deletedAt: null },
-      include: { category: true },
-      orderBy: { id: 'asc' },
-    });
+  async findAll(query: ProductListQueryDto = {}) {
+    if (
+      query.minPrice !== undefined &&
+      query.maxPrice !== undefined &&
+      query.minPrice > query.maxPrice
+    ) {
+      throw new BadRequestException(
+        'minPrice must not be greater than maxPrice',
+      );
+    }
+
+    const { page, limit, skip } = getPagination(query);
+    const search = query.search;
+    const where: Prisma.ProductWhereInput = {
+      deletedAt: null,
+      ...(query.categoryId && { categoryId: query.categoryId }),
+      ...(query.status && { status: query.status }),
+      ...((query.minPrice !== undefined || query.maxPrice !== undefined) && {
+        price: {
+          ...(query.minPrice !== undefined && { gte: query.minPrice }),
+          ...(query.maxPrice !== undefined && { lte: query.maxPrice }),
+        },
+      }),
+      ...(query.lowStock && { stock: { lte: 5 } }),
+      ...(search && {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } },
+          { category: { name: { contains: search, mode: 'insensitive' } } },
+        ],
+      }),
+    };
+    const [products, total] = await Promise.all([
+      this.prisma.product.findMany({
+        where,
+        include: { category: true },
+        orderBy: { [query.sortBy ?? 'createdAt']: query.sortOrder ?? 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.product.count({ where }),
+    ]);
+
+    return toPaginatedResponse(products, { page, limit }, total);
   }
 
   async getById(id: number) {

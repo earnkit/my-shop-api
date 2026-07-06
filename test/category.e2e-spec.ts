@@ -59,14 +59,24 @@ describe('CategoryController (e2e)', () => {
   });
 
   it('GET /category', async () => {
-    categoryService.findAll.mockResolvedValue([category]);
+    const result = {
+      data: [category],
+      meta: { page: 1, limit: 10, total: 1, totalPages: 1 },
+    };
+    categoryService.findAll.mockResolvedValue(result);
 
     await request(app.getHttpServer())
       .get('/category')
+      .query({ page: 1, limit: 10, search: 'drink', sortBy: 'name' })
       .expect(200)
-      .expect([category]);
+      .expect(result);
 
-    expect(categoryService.findAll).toHaveBeenCalled();
+    expect(categoryService.findAll).toHaveBeenCalledWith({
+      page: 1,
+      limit: 10,
+      search: 'drink',
+      sortBy: 'name',
+    });
   });
 
   it('GET /category/:id', async () => {
