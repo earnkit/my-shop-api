@@ -186,6 +186,15 @@ This project uses a custom JWT-like token implementation signed with HMAC SHA-25
 
 Authenticated customers can use `POST /order/my-orders` to create an order without sending `userId`; the API uses the user ID from the access token. They can also use `GET /order/my-orders` to view their own order history.
 
+## Test Accounts
+
+After running `npm run prisma:seed`, you can use these test accounts:
+
+| Role | Email | Password |
+| --- | --- | --- |
+| Admin | `admin@example.com` | `password123` |
+| Customer | `customer@example.com` | `password123` |
+
 ## Validation and Error Handling
 
 - Global `ValidationPipe` is enabled in `main.ts`.
