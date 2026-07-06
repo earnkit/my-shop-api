@@ -248,13 +248,27 @@ The PostgreSQL service is named `postgres`, and the container name is `my_shop_d
 Generate the Prisma client:
 
 ```bash
-npx prisma generate
+npm run prisma:generate
 ```
 
-Run database migrations:
+Run database migrations in development:
 
 ```bash
-npx prisma migrate dev
+npm run prisma:migrate:dev
+```
+
+Seed initial data:
+
+```bash
+npm run prisma:seed
+```
+
+The seed creates one admin user, one customer user, three categories, five products, and three customer orders. Both seeded users use `password123`, hashed with the same `scrypt` format as the authentication service. The seed is safe to run repeatedly without creating duplicate seed records.
+
+Reset the development database, rerun migrations, and optionally run the seed:
+
+```bash
+npm run prisma:reset
 ```
 
 ## Running the Project
@@ -263,6 +277,13 @@ Start the development server:
 
 ```bash
 npm run start:dev
+```
+
+Build and start the production server:
+
+```bash
+npm run build
+npm run start:prod
 ```
 
 Default API URL:
